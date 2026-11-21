@@ -1,0 +1,28 @@
+name: Fetch Tatoeba audio
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["ids.txt", "scripts/**", ".github/workflows/**"]
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (no marketplace actions)
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+      - name: Fetch
+        working-directory: repo
+        run: |
+          python3 -m pip install --quiet opencc-python-reimplemented
+          python3 scripts/tatoeba.py
+      - name: Commit results
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A candidates.tsv audio 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "Tatoeba audio update" && git push)
