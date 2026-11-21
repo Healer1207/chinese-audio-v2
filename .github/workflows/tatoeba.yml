@@ -3,26 +3,83 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["ids.txt", "scripts/**", ".github/workflows/**"]
 permissions:
   contents: write
 jobs:
   fetch:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Checkout (no marketplace actions)
-        run: |
-          git clone --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
-      - name: Fetch
+      - name: Checkout
+        run: git clone --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+      - name: Install
+        run: python3 -m pip install --quiet opencc-python-reimplemented
+      - name: Fetch native-speaker audio from Tatoeba
         working-directory: repo
         run: |
-          python3 -m pip install --quiet opencc-python-reimplemented
-          python3 scripts/tatoeba.py
+          python3 - <<'PY'
+          import bz2, csv, io, os, random, tarfile, time, urllib.request
+          import opencc
+          UA={"User-Agent":"chinese-audio-study/1.0 (personal study)"}
+          BASE="https://downloads.tatoeba.org/exports"
+          OK=set("一七万丈三上下不专且世业东丢两严个中为主丽举久么乎乐九也习书买了事二于互五些交京亮人什今介仍从他付代以们件价任份休众会伞伟伤但位低住体何余作你使例供便保信俩倒候借值假做健催像儿元兄充先兔入全八公六共关兴其具典内再冒写冬冰决况冷净准凉凌减几出分刚利别刮到刷刻前力办功加务动助努勇勿包化北匙区医十千午半单卖南卡危历厉厌厨去参又及友双反发叔变口句另只叫叭可史右号司吃各合同名后向吗吧听吵告员呢周味命和咖响哥哪哭售唱商啊啡啤啦喂喇喜喝器四回因园国图圆在地场址坏坐块城堵境增士声处备复夏外多大天太夫头奇女奶她好如妈妹妻始姐姓姨婚子字季学孩它安完定宜实客室害家容宾对导封尊小少尚就层居展山岁工左差己已币市师希带帮常帽干平年广床序应底店度座康开弟张当彩影往很律得微心必志忘忙快怎怕怜思急性怪总恐息悔您情惜惯想愉意感愿慢懂戏成我或户房所手才打扔托扫扬找承技把护报担拍拖拜择拿持按换据授排接提插握搬摔摸收改放故效教数整文料斤新方旁旅无既日旧早时明易星春昨是晚普晴暂更最月有朋服望期末本术朵机杀李束条来杯松板极果查标树校样根格桌梯检棒棕椅楚楼概橙次欢歉歌正步死段每比毕民气水求汉汽没河油法注泳洗活流济海清渴游源满漂演澡激火灯灰点炼烤烦烧烫热然照熊熟爬爱爷爸片牙牛物特狗猫王玩环现班球理瓜瓶甜生用由申电男画界留疯疼病瘦白百的皮盘目直相看真眼着睛睡知短矮确碗碰示礼社祝神票离秋种科租程空穿突窗站竟章笑笔符第等答筷简算管箱篮籍米粉粗精糕糖系索紧紫累红约级纸练终绍经结给绩续绳绿网羊美老考者而耐耳聊职聪肉肯育胖胡能脑脚脸脾腿自舒舞般船色艺节花英苹茶草药获菜蓝蕉虑虽蛋行街衣表衫衬被裙裤西要见观规视觉角解触言认讨让议记讲论访证识诉词试诚话该语误说请读课谁调谓谢责货贵资赛走赶起超越趣足跑跟路跳踢身车轻较辆辣边过迎运近还这进远迟送适选通速遇遍道邀那邮邻部都酒醒释里重量金钟钥钱铁铅银锁锅错键锻镜长门问间闹闻队阳阴阿附际院除险随难雨雪需静非靠面鞋音顺须顾预题颜风飞饭饮饱饺饿馆香马验骑高鬼鱼鲜鸟鸡鸭黄黑鼻龄")
+          def get(url,tries=3):
+              for i in range(tries):
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=120) as r: return r.read()
+                  except Exception as e:
+                      print("retry",url,e,flush=True); time.sleep(3*(i+1))
+              return None
+          t2s=opencc.OpenCC("t2s")
+          raw=bz2.decompress(get(BASE+"/per_language/cmn/cmn_sentences.tsv.bz2")).decode()
+          cmn={}
+          for line in raw.splitlines():
+              p=line.split("\t")
+              if len(p)>=3: cmn[p[0]]=p[2]
+          print("cmn",len(cmn),flush=True)
+          tf=tarfile.open(fileobj=io.BytesIO(get(BASE+"/sentences_with_audio.tar.bz2")),mode="r:bz2")
+          m=[x for x in tf.getmembers() if x.name.endswith(".csv")][0]
+          audio={}
+          for line in tf.extractfile(m).read().decode().splitlines():
+              p=line.split("\t")
+              if p and p[0] in cmn and p[0] not in audio: audio[p[0]]=(p[1:]+["","","",""])[:4]
+          print("cmn with audio",len(audio),flush=True)
+          cand=[];seen=set()
+          for sid,meta in audio.items():
+              t=cmn[sid]
+              han=[c for c in t if "一"<=c<="鿿"]
+              if not (4<=len(han)<=16): continue
+              if t2s.convert(t)!=t: continue
+              if any(c not in OK for c in han): continue
+              if t in seen: continue
+              seen.add(t); cand.append((sid,t,meta))
+          print("level-matched candidates",len(cand),flush=True)
+          random.seed(7); random.shuffle(cand)
+          pick=cand[:450]
+          os.makedirs("audio",exist_ok=True)
+          rows=[]
+          for sid,t,meta in pick:
+              out="audio/%s.mp3"%sid
+              data=None
+              urls=(["https://tatoeba.org/audio/download/"+meta[0]] if meta[0] else [])+["https://audio.tatoeba.org/sentences/cmn/%s.mp3"%sid]
+              for u in urls:
+                  d=get(u,tries=2)
+                  if d and len(d)>1000: data=d; break
+              if data:
+                  open(out,"wb").write(data); rows.append([sid,t]+meta)
+              time.sleep(0.3)
+          with open("sentences.tsv","w",newline="") as f:
+              w=csv.writer(f,delimiter="\t"); w.writerow(["id","text","audio_id","username","license","attribution"]); w.writerows(rows)
+          with open("all_candidates.tsv","w",newline="") as f:
+              w=csv.writer(f,delimiter="\t"); w.writerow(["id","text","audio_id","username","license","attribution"])
+              for sid,t,meta in cand: w.writerow([sid,t]+meta)
+          print("downloaded",len(rows),flush=True)
+          PY
       - name: Commit results
         working-directory: repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A candidates.tsv audio 2>/dev/null || true
-          git diff --cached --quiet || (git commit -m "Tatoeba audio update" && git push)
+          git add -A audio sentences.tsv all_candidates.tsv
+          git diff --cached --quiet || (git commit -m "Add Tatoeba native-speaker audio" && git push)
