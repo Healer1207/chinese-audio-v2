@@ -20,36 +20,49 @@ jobs:
         working-directory: repo
         run: |
           python3 - <<'PY'
-          import os, json, time, urllib.request, urllib.parse, urllib.error
+          import os, json, time, urllib.request, urllib.parse
           import opencc
           cv=opencc.OpenCC('s2t')
-          UA={"User-Agent":"hanzi-study/1.0 (personal study; github.com/Healer1207)"}
-          chars=open('chars.txt').read().strip()
-          extra={'扌':'手','辶':'辵','艹':'艸','纟':'糸','钅':'金','犭':'犬','亻':'人','氵':'水','讠':'言','饣':'食','忄':'心'}
-          os.makedirs('ancient',exist_ok=True)
-          out={}
-          def get(name):
-              url="https://commons.wikimedia.org/wiki/Special:FilePath/"+urllib.parse.quote(name)
-              for i in range(3):
+          UA={"User-Agent":"HanziStudyBot/1.0 (https://github.com/Healer1207/chinese-audio-v2; personal study)"}
+          def get(url):
+              for i in range(5):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=60) as r: return r.read()
-                  except urllib.error.HTTPError as e:
-                      if e.code==404: return None
-                      time.sleep(2+i*3)
-                  except Exception: time.sleep(2+i*3)
+                  except Exception as e:
+                      print('retry',url[:90],e,flush=True); time.sleep(5*(i+1))
               return None
+          chars=open('chars.txt').read().strip()
+          extra={'扌':'手','辶':'辵','艹':'艸','纟':'糸','钅':'金','犭':'犬','亻':'人','氵':'水','讠':'言','饣':'食','忄':'心'}
+          cand={}
           for c in chars:
-              cands=[]
-              for x in [extra.get(c,c), cv.convert(extra.get(c,c)), c]:
-                  if x not in cands: cands.append(x)
+              b=extra.get(c,c); L=[]
+              for x in [b, cv.convert(b), c]:
+                  if x not in L: L.append(x)
+              cand[c]=L
+          titles=sorted({f"File:{x}-{f}.svg" for L in cand.values() for x in L for f in ['oracle','bronze','seal']})
+          print('titles',len(titles),flush=True)
+          urls={}
+          for i in range(0,len(titles),50):
+              q=urllib.parse.urlencode({'action':'query','format':'json','prop':'imageinfo','iiprop':'url','titles':'|'.join(titles[i:i+50])})
+              d=get('https://commons.wikimedia.org/w/api.php?'+q)
+              if not d: continue
+              d=json.loads(d)
+              norm={n['to']:n['from'] for n in d['query'].get('normalized',[])}
+              for pg in d['query']['pages'].values():
+                  if 'imageinfo' in pg: urls[norm.get(pg['title'],pg['title'])]=pg['imageinfo'][0]['url']
+              time.sleep(1)
+          print('found',len(urls),flush=True)
+          os.makedirs('ancient',exist_ok=True); out={}
+          for c,L in cand.items():
               got={}
-              for form in ['oracle','bronze','seal']:
-                  for x in cands:
-                      name=f"{x}-{form}.svg"; b=get(name); time.sleep(0.15)
-                      if b and b.lstrip().startswith(b'<'):
-                          fn=f"ancient/{c}-{form}.svg"; open(fn,'wb').write(b); got[form]=name; break
+              for f in ['oracle','bronze','seal']:
+                  for x in L:
+                      t=f"File:{x}-{f}.svg"
+                      if t in urls:
+                          b=get(urls[t]); time.sleep(0.3)
+                          if b: open(f"ancient/{c}-{f}.svg",'wb').write(b); got[f]=t
+                          break
               if got: out[c]=got
-              print(c,got,flush=True)
           json.dump(out,open('ancient/index.json','w'),ensure_ascii=False,indent=0)
           print('chars with forms:',len(out))
           PY
