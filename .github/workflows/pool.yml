@@ -58,7 +58,7 @@ jobs:
                   for u in urls:
                       d=get(u,tries=2)
                       if d and len(d)>1000: open(out,"wb").write(d);n+=1;break
-                  time.sleep(0.3)
+                  time.sleep(0.15)
               print("downloaded",n,flush=True)
           PY
       - name: Commit
@@ -69,4 +69,4 @@ jobs:
           git config user.email "41898+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "Update Tatoeba pool/audio" || echo nothing
-          git push
+          for i in 1 2 3; do git pull --rebase -q && git push && break; sleep 5; done
