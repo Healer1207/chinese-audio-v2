@@ -25,11 +25,11 @@ jobs:
           cv=opencc.OpenCC('s2t')
           UA={"User-Agent":"HanziStudyBot/1.0 (https://github.com/Healer1207/chinese-audio-v2; personal study)"}
           def get(url):
-              for i in range(5):
+              for i in range(6):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=60) as r: return r.read()
                   except Exception as e:
-                      print('retry',url[:90],e,flush=True); time.sleep(5*(i+1))
+                      print('retry',url[-40:],str(e)[:40],flush=True); time.sleep(30*(i+1) if '429' in str(e) else 5)
               return None
           chars=open('chars.txt').read().strip()
           extra={'扌':'手','辶':'辵','艹':'艸','纟':'糸','钅':'金','犭':'犬','亻':'人','氵':'水','讠':'言','饣':'食','忄':'心'}
@@ -52,21 +52,24 @@ jobs:
                   if 'imageinfo' in pg: urls[norm.get(pg['title'],pg['title'])]=pg['imageinfo'][0]['url']
               time.sleep(1)
           print('found',len(urls),flush=True)
-          os.makedirs('ancient',exist_ok=True); out={}
+          os.makedirs('ancient',exist_ok=True)
+          out=json.load(open('ancient/index.json')) if os.path.exists('ancient/index.json') else {}
+          T0=time.time()
           for c,L in cand.items():
-              got={}
+              if c in out: continue
+              if time.time()-T0>45*60: break
               for f in ['oracle','bronze','seal']:
-                  for x in L:
-                      t=f"File:{x}-{f}.svg"
-                      if t in urls:
-                          b=get(urls[t]); time.sleep(0.3)
-                          if b: open(f"ancient/{c}-{f}.svg",'wb').write(b); got[f]=t
-                          break
-              if got: out[c]=got
+                  t=next((f"File:{x}-{f}.svg" for x in L if f"File:{x}-{f}.svg" in urls),None)
+                  if t:
+                      b=get(urls[t]); time.sleep(2.5)
+                      if b: open(f"ancient/{c}.svg",'wb').write(b); out[c]=[f,t]
+                      break
+              json.dump(out,open('ancient/index.json','w'),ensure_ascii=False,indent=0)
           json.dump(out,open('ancient/index.json','w'),ensure_ascii=False,indent=0)
           print('chars with forms:',len(out))
           PY
       - name: Commit
+        if: always()
         working-directory: repo
         run: |
           git config user.name "github-actions[bot]"
